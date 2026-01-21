@@ -2,7 +2,7 @@
 
 julia_version = "1.10.1"
 manifest_format = "2.0"
-project_hash = "48198ebbed68b01454e0930f5431f78b7b988269"
+project_hash = "c9351a681781f6ac49a3409694b526d84d1f0341"
 
 [[deps.ASL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -123,6 +123,18 @@ deps = ["LinearAlgebra"]
 git-tree-sha1 = "1520a695ba9cdeaa0da775a14a0a48c25e110831"
 uuid = "408c25d7-97fa-4992-8bd9-ce15f1a09fe9"
 version = "0.2.1"
+
+[[deps.Gurobi]]
+deps = ["Gurobi_jll", "Libdl", "MathOptInterface", "PrecompileTools"]
+git-tree-sha1 = "7e700e7cec5c72ede0115684c447c1944911be5b"
+uuid = "2e9cd046-0924-5485-92f1-d5272153d98b"
+version = "1.9.1"
+
+[[deps.Gurobi_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "ec2817f5a9be1e84ebc0ee8207a4bfd8d22b99a5"
+uuid = "c018c7e6-a5b0-4aea-8f80-9c1ef9991411"
+version = "13.0.0"
 
 [[deps.Hwloc_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "XML2_jll", "Xorg_libpciaccess_jll"]

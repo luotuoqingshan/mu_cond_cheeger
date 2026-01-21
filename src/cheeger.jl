@@ -10,6 +10,7 @@ using JuMP
 using Ipopt
 using DelimitedFiles
 using MatrixNetworks
+using Gurobi
 
 function load_graph_txt(path2file::String)
     E = readdlm(path2file, Int64)
@@ -170,6 +171,101 @@ function solve_lambda_mu(A::AbstractMatrix{T}, μ::Real;
 end
 
 
+"""
+    solve_phi_mu(A, μ; time_limit=300.0)
+
+Solve:
+  ϕ_μ(G) = min_S ϕ(S)
+  s.t. μVol(G) ≤ Vol(S) ≤ (1-μ)Vol(G)
+
+where ϕ(S) = cut(S, V\\S) / min(Vol(S), Vol(V\\S)),
+Vol(S) = sum_i d_i * y_i, d_i = sum_j A[i,j], and y_i ∈ {0,1}.
+
+Returns: (best_phi, y_solution, info::Dict)
+"""
+function solve_phi_mu(A::AbstractMatrix{<:Real}, μ::Real; time_limit::Real=300.0)
+    n = size(A, 1)
+    @assert size(A, 2) == n "A must be square"
+    @assert 0 <= μ <= 1/2 "μ must be in [0,1/2]"
+    @assert issymmetric(A) "This formulation assumes an undirected graph (A symmetric)"
+    @assert all(A .>= 0) "Adjacency weights must be nonnegative"
+
+    d = vec(sum(A, dims=2))
+    VolG = sum(d)
+    @assert VolG > 0 "Vol(G) must be positive"
+
+    # Build edge list from upper triangle nonzeros (i < j)
+    edges_i = Int[]
+    edges_j = Int[]
+    weights = Float64[]
+    for i in 1:n
+        for j in (i+1):n
+            w = float(A[i, j])
+            if w != 0.0
+                push!(edges_i, i)
+                push!(edges_j, j)
+                push!(weights, w)
+            end
+        end
+    end
+    m = length(weights)
+    @assert m > 0 "Graph has no edges (cut is always 0; objective is degenerate)."
+
+    model = Model(Gurobi.Optimizer)
+    set_optimizer_attribute(model, "TimeLimit", time_limit)
+
+    # Required for bilinear (nonconvex) quadratic constraints in Gurobi:
+    set_optimizer_attribute(model, "NonConvex", 2)
+
+    @variable(model, y[1:n], Bin)        # membership of S
+    @variable(model, z[1:m] >= 0)        # z_e >= |y_i - y_j|, (continuous is fine)
+    @variable(model, v >= 0)             # Vol(S)
+    @variable(model, c >= 0)             # cut(S)
+    @variable(model, t >= 0)             # objective value (conductance)
+
+    # Volume definition and constraints
+    @constraint(model, v == sum(d[i] * y[i] for i in 1:n))
+    @constraint(model, μ * VolG <= v)
+    @constraint(model, v <= VolG / 2)
+
+    # Linearize |y_i - y_j| with z_e >= y_i - y_j and z_e >= y_j - y_i
+    # Also z_e <= 1 is enough since y are binary
+    for e in 1:m
+        i = edges_i[e]
+        j = edges_j[e]
+        @constraint(model, z[e] >= y[i] - y[j])
+        @constraint(model, z[e] >= y[j] - y[i])
+        @constraint(model, z[e] <= 1)
+    end
+
+    # cut(S) = Σ w_e z_e
+    @constraint(model, c == sum(weights[e] * z[e] for e in 1:m))
+
+    # Enforce t >= c / min(v, VolG - v) via bilinear inequalities:
+    @constraint(model, c <= t * v)
+
+    @objective(model, Min, t)
+
+    optimize!(model)
+
+    term = termination_status(model)
+    if term != MOI.OPTIMAL && term != MOI.TIME_LIMIT && term != MOI.SUBOPTIMAL
+        error("Solver did not return a usable solution. termination_status = $term")
+    end
+
+    ysol = value.(y)
+    best_phi = value(t)
+
+    info = Dict(
+        "termination_status" => term,
+        "VolG" => VolG,
+        "VolS" => value(v),
+        "cut"  => value(c),
+        "μ"    => μ,
+    )
+    return best_phi, ysol, info
+end
+
 # -----------------------
 # Example usage:
 # -----------------------
@@ -193,7 +289,11 @@ A == A'
 
 μ = 0.45
 best_obj, best_x, info = solve_lambda_mu(A, μ; starts=30, seed=42)
-
 println("Best objective: ", best_obj)
 println("Best x: ", best_x)
+println("Info: ", info)
+
+best_phi, ysol, info = solve_phi_mu(A, μ; time_limit=60.0)
+println("Best phi: ", best_phi)
+println("Best y: ", ysol)
 println("Info: ", info)
